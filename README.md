@@ -161,6 +161,17 @@ Requires the `claude` CLI to be installed and authenticated.
 - **MCP servers are separate**: Claude CLI uses its own MCP servers (configured in `~/.claude/settings.json`), not the ones configured in opencode. If you need a specific MCP server (e.g., GitHub), add it to your Claude Code settings.
 - **No opencode permission UI integration**: Permission prompts go through Claude CLI's own system, not opencode's permission dialog.
 
+## Publishing
+
+To publish a new version to npm, bump the version in `package.json` and push a tag:
+
+```bash
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+The GitHub Actions workflow will automatically build and publish to npm on any `v*` tag.
+
 ## License
 
 MIT
