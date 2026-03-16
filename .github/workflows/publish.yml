@@ -17,4 +17,4 @@ jobs:
           node-version: 22
       - run: npm install
       - name: Publish package
-        run: npx jsr publish
+        run: npx jsr publish --allow-dirty
