@@ -1,5 +1,5 @@
 {
-  "name": "opencode-claude-code",
+  "name": "opencode-claude-code-plugin",
   "version": "0.1.0",
   "description": "Claude Code CLI provider plugin for opencode",
   "type": "module",
