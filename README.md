@@ -30,7 +30,7 @@ Add this to your project's `opencode.json`:
 {
   "provider": {
     "claude-code": {
-      "npm": "opencode-claude-code-plugin@latest",
+      "npm": "opencode-claude-code-plugin",
       "models": {
         "haiku": {
           "name": "Claude Code Haiku",
