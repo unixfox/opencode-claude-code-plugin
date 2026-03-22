@@ -7,6 +7,9 @@ import type {
   LanguageModelV2Usage,
 } from "@ai-sdk/provider"
 import { generateId } from "@ai-sdk/provider-utils"
+import { existsSync } from "node:fs"
+import { join } from "node:path"
+import { spawnSync } from "node:child_process"
 import type { ClaudeCodeConfig, ClaudeStreamMessage } from "./types.js"
 import { mapTool } from "./tool-mapping.js"
 import { getClaudeUserMessage } from "./message-builder.js"
@@ -38,11 +41,85 @@ export class ClaudeCodeLanguageModel implements LanguageModelV2 {
     return this.config.provider
   }
 
+  private resolveCwd(options?: { providerOptions?: Record<string, unknown> }): string {
+    // If user explicitly configured a cwd, respect it.
+    if (this.config.cwd && this.config.cwd.trim().length > 0) {
+      return this.config.cwd
+    }
+
+    // If OpenCode passed provider-level cwd explicitly, use it.
+    const providerOpts = options?.providerOptions as
+      | Record<string, Record<string, unknown>>
+      | undefined
+    const claudeCodeOpts = providerOpts?.["claude-code"]
+    const explicitCwd = claudeCodeOpts?.["cwd"]
+    if (typeof explicitCwd === "string" && explicitCwd.trim().length > 0) {
+      return explicitCwd
+    }
+
+    // Desktop app can run with process cwd="/". If a sessionID is present,
+    // resolve the actual OpenCode session directory from its SQLite DB.
+    const sessionID = claudeCodeOpts?.["sessionID"]
+    if (typeof sessionID === "string" && /^[A-Za-z0-9_-]+$/.test(sessionID)) {
+      try {
+        const home = process.env.HOME
+        if (home) {
+          const dbPath = join(home, ".local", "share", "opencode", "opencode.db")
+          if (existsSync(dbPath)) {
+            const sql = `select directory from session where id='${sessionID}' limit 1;`
+            const res = spawnSync("sqlite3", [dbPath, sql], {
+              encoding: "utf8",
+              timeout: 1500,
+            })
+            const dbCwd = (res.stdout ?? "").trim()
+            if (dbCwd.length > 0) return dbCwd
+          }
+        }
+      } catch {
+        // Fallback below.
+      }
+    }
+
+    // External providers on some OpenCode builds do not receive sessionID/cwd.
+    // In desktop mode process.cwd() may be "/" even when a project session is open.
+    // Use the most recently updated non-root session directory as a best-effort
+    // fallback when cwd is root.
+    const runtimeCwd = process.cwd()
+    if (runtimeCwd === "/") {
+      try {
+        const home = process.env.HOME
+        if (home) {
+          const dbPath = join(home, ".local", "share", "opencode", "opencode.db")
+          if (existsSync(dbPath)) {
+            const nowMs = Date.now()
+            const fiveMinAgo = nowMs - 5 * 60 * 1000
+            const sql =
+              "select directory from session " +
+              "where directory != '/' and time_updated >= " +
+              `${fiveMinAgo} ` +
+              "order by time_updated desc limit 1;"
+            const res = spawnSync("sqlite3", [dbPath, sql], {
+              encoding: "utf8",
+              timeout: 1500,
+            })
+            const recentDir = (res.stdout ?? "").trim()
+            if (recentDir.length > 0) return recentDir
+          }
+        }
+      } catch {
+        // Fall through to runtime cwd.
+      }
+    }
+
+    // Default: runtime cwd at call time.
+    return runtimeCwd
+  }
+
   async doGenerate(
     options: Parameters<LanguageModelV2["doGenerate"]>[0],
   ): Promise<Awaited<ReturnType<LanguageModelV2["doGenerate"]>>> {
     const warnings: LanguageModelV2CallWarning[] = []
-    const cwd = this.config.cwd ?? process.cwd()
+    const cwd = this.resolveCwd(options as any)
     const sk = sessionKey(cwd, this.modelId)
 
     const hasPriorConversation =
@@ -313,7 +390,7 @@ export class ClaudeCodeLanguageModel implements LanguageModelV2 {
     options: Parameters<LanguageModelV2["doStream"]>[0],
   ): Promise<Awaited<ReturnType<LanguageModelV2["doStream"]>>> {
     const warnings: LanguageModelV2CallWarning[] = []
-    const cwd = this.config.cwd ?? process.cwd()
+    const cwd = this.resolveCwd(options as any)
     const cliPath = this.config.cliPath
     const skipPermissions = this.config.skipPermissions !== false
     const sk = sessionKey(cwd, this.modelId)
@@ -341,6 +418,7 @@ export class ClaudeCodeLanguageModel implements LanguageModelV2 {
       textLength: userMsg.length,
       includeHistoryContext,
       hasActiveProcess,
+      maxOutputTokens: (options as any)?.maxOutputTokens ?? null,
     })
 
     const cliArgs = buildCliArgs({
