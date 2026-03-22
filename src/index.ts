@@ -12,14 +12,16 @@ export function createClaudeCode(
 ): ClaudeCodeProvider {
   const cliPath =
     settings.cliPath ?? process.env.CLAUDE_CLI_PATH ?? "claude"
-  const cwd = settings.cwd ?? process.cwd()
   const providerName = settings.name ?? "claude-code"
 
   const createModel = (modelId: string): LanguageModelV2 => {
     return new ClaudeCodeLanguageModel(modelId, {
       provider: providerName,
       cliPath,
-      cwd,
+      // Keep undefined unless explicitly configured.
+      // The model resolves cwd lazily per request so it tracks the active
+      // OpenCode project directory instead of provider init-time process cwd.
+      cwd: settings.cwd,
       skipPermissions: settings.skipPermissions ?? true,
     })
   }
