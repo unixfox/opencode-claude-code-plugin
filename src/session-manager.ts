@@ -107,8 +107,9 @@ export function buildCliArgs(opts: {
   skipPermissions: boolean
   includeSessionId?: boolean
   model?: string
+  effort?: string
 }): string[] {
-  const { sessionKey, skipPermissions, includeSessionId = true, model } = opts
+  const { sessionKey, skipPermissions, includeSessionId = true, model, effort } = opts
   const args = [
     "--output-format",
     "stream-json",
@@ -119,6 +120,10 @@ export function buildCliArgs(opts: {
 
   if (model) {
     args.push("--model", model)
+  }
+
+  if (effort) {
+    args.push("--effort", effort)
   }
 
   if (includeSessionId) {
@@ -136,9 +141,9 @@ export function buildCliArgs(opts: {
 }
 
 /**
- * Build a session key that includes both cwd and model,
- * so different models get separate processes.
+ * Build a session key that includes cwd, model, and runtime options
+ * that affect Claude session behavior.
  */
-export function sessionKey(cwd: string, modelId: string): string {
-  return `${cwd}::${modelId}`
+export function sessionKey(cwd: string, modelId: string, effort?: string): string {
+  return `${cwd}::${modelId}::${effort ?? "default"}`
 }
