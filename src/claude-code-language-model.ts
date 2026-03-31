@@ -22,6 +22,85 @@ import {
 } from "./session-manager.js"
 import { log } from "./logger.js"
 
+function buildUsage(
+  usage?: ClaudeStreamMessage["usage"],
+): LanguageModelV2Usage {
+  const hasInputTokens =
+    typeof usage?.input_tokens === "number" ||
+    typeof usage?.cache_read_input_tokens === "number" ||
+    typeof usage?.cache_creation_input_tokens === "number"
+  const inputTokens = hasInputTokens
+    ? (usage?.input_tokens ?? 0) +
+      (usage?.cache_read_input_tokens ?? 0) +
+      (usage?.cache_creation_input_tokens ?? 0)
+    : undefined
+  const outputTokens = usage?.output_tokens
+
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens:
+      typeof inputTokens === "number" && typeof outputTokens === "number"
+        ? inputTokens + outputTokens
+        : undefined,
+    cachedInputTokens: usage?.cache_read_input_tokens,
+  }
+}
+
+function buildProviderMetadata(meta: {
+  sessionId?: string
+  costUsd?: number
+  durationMs?: number
+  cacheCreationInputTokens?: number
+}): Record<string, Record<string, string | number | null>> | undefined {
+  const data: Record<string, string | number | null> = {}
+  const anthropic: Record<string, string | number | null> = {}
+
+  if (typeof meta.sessionId === "string") data.sessionId = meta.sessionId
+  if (typeof meta.costUsd === "number") data.costUsd = meta.costUsd
+  if (typeof meta.durationMs === "number") data.durationMs = meta.durationMs
+  if (typeof meta.cacheCreationInputTokens === "number") {
+    anthropic.cacheCreationInputTokens = meta.cacheCreationInputTokens
+  }
+
+  if (Object.keys(data).length === 0 && Object.keys(anthropic).length === 0) {
+    return undefined
+  }
+
+  return {
+    ...(Object.keys(data).length > 0 ? { "claude-code": data } : {}),
+    ...(Object.keys(anthropic).length > 0 ? { anthropic } : {}),
+  }
+}
+
+function buildStreamUsage(
+  usage: LanguageModelV2Usage,
+  cacheWriteInputTokens?: number,
+) {
+  const cacheReadInputTokens = usage.cachedInputTokens
+  const noCacheInputTokens =
+    typeof usage.inputTokens === "number"
+      ? usage.inputTokens -
+        (cacheReadInputTokens ?? 0) -
+        (cacheWriteInputTokens ?? 0)
+      : undefined
+
+  return {
+    inputTokens: {
+      total: usage.inputTokens,
+      noCache: noCacheInputTokens,
+      cacheRead: cacheReadInputTokens,
+      cacheWrite: cacheWriteInputTokens,
+    },
+    outputTokens: {
+      total: usage.outputTokens,
+      text: undefined,
+      reasoning: usage.reasoningTokens,
+    },
+    totalTokens: usage.totalTokens,
+  }
+}
+
 export class ClaudeCodeLanguageModel implements LanguageModelV2 {
   readonly specificationVersion = "v2"
   readonly modelId: string
@@ -179,7 +258,6 @@ export class ClaudeCodeLanguageModel implements LanguageModelV2 {
 
     const userMsg = getClaudeUserMessage(options.prompt, includeHistoryContext)
 
-    // doGenerate always spawns a fresh process, never reuse session ID
     const cliArgs = buildCliArgs({
       sessionKey: sk,
       skipPermissions: this.config.skipPermissions !== false,
@@ -453,19 +531,23 @@ export class ClaudeCodeLanguageModel implements LanguageModelV2 {
           controller.enqueue({ type: "text-end", id: textId })
           controller.enqueue({
             type: "finish",
-            finishReason: "stop",
-            usage: {
+            finishReason: {
+              unified: "stop",
+              raw: undefined,
+            } as any,
+            rawFinishReason: undefined as any,
+            usage: buildStreamUsage({
               inputTokens: 0,
               outputTokens: 0,
               totalTokens: 0,
-            },
+            }) as any,
             providerMetadata: {
               "claude-code": {
                 synthetic: true,
                 path: "no-tools",
               },
             },
-          })
+          } as any)
           controller.close()
         },
       })
@@ -548,6 +630,7 @@ export class ClaudeCodeLanguageModel implements LanguageModelV2 {
           costUsd?: number
           durationMs?: number
           usage?: ClaudeStreamMessage["usage"]
+          cacheCreationInputTokens?: number
         } = {}
 
         const lineHandler = (line: string) => {
@@ -969,6 +1052,7 @@ export class ClaudeCodeLanguageModel implements LanguageModelV2 {
                 costUsd: msg.total_cost_usd,
                 durationMs: msg.duration_ms,
                 usage: msg.usage,
+                cacheCreationInputTokens: msg.usage?.cache_creation_input_tokens,
               }
 
               log.info("conversation result", {
@@ -993,24 +1077,21 @@ export class ClaudeCodeLanguageModel implements LanguageModelV2 {
                 }
               }
 
+              const usage = buildUsage(msg.usage)
+
               controller.enqueue({
                 type: "finish",
-                finishReason:
-                  toolCallMap.size > 0 ? "tool-calls" : "stop",
-                usage: {
-                  inputTokens: msg.usage?.input_tokens,
-                  outputTokens: msg.usage?.output_tokens,
-                  totalTokens:
-                    msg.usage?.input_tokens &&
-                    msg.usage?.output_tokens
-                      ? msg.usage.input_tokens +
-                        msg.usage.output_tokens
-                      : undefined,
-                },
-                providerMetadata: {
-                  "claude-code": resultMeta,
-                },
-              })
+                finishReason: {
+                  unified: toolCallMap.size > 0 ? "tool-calls" : "stop",
+                  raw: undefined,
+                } as any,
+                rawFinishReason: undefined as any,
+                usage: buildStreamUsage(
+                  usage,
+                  msg.usage?.cache_creation_input_tokens,
+                ) as any,
+                providerMetadata: buildProviderMetadata(resultMeta),
+              } as any)
 
               controllerClosed = true
               lineEmitter.off("line", lineHandler)
@@ -1039,16 +1120,17 @@ export class ClaudeCodeLanguageModel implements LanguageModelV2 {
           }
           controller.enqueue({
             type: "finish",
-            finishReason: "stop",
-            usage: {
-              inputTokens: undefined,
-              outputTokens: undefined,
-              totalTokens: undefined,
-            },
-            providerMetadata: {
-              "claude-code": resultMeta,
-            },
-          })
+            finishReason: {
+              unified: "stop",
+              raw: undefined,
+            } as any,
+            rawFinishReason: undefined as any,
+            usage: buildStreamUsage(
+              buildUsage(resultMeta.usage),
+              resultMeta.cacheCreationInputTokens,
+            ) as any,
+            providerMetadata: buildProviderMetadata(resultMeta),
+          } as any)
           try {
             controller.close()
           } catch {}
