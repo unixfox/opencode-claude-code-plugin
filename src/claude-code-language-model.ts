@@ -200,6 +200,7 @@ export class ClaudeCodeLanguageModel implements LanguageModelV2 {
     const proc = spawn(this.config.cliPath, cliArgs, {
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
+      shell: process.platform === "win32",
       env: { ...process.env, TERM: "xterm-256color" },
     })
 

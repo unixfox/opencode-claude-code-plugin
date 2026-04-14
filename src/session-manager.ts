@@ -53,6 +53,7 @@ export function spawnClaudeProcess(
   const proc = spawn(cliPath, cliArgs, {
     cwd,
     stdio: ["pipe", "pipe", "pipe"],
+    shell: process.platform === "win32",
     env: { ...process.env, TERM: "xterm-256color" },
   })
 
