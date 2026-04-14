@@ -7,10 +7,12 @@ import type {
 
 // V3 usage helper
 function v3Usage(input?: number, output?: number, cacheRead?: number, cacheWrite?: number, reasoning?: number) {
+  // CLI returns input_tokens as non-cached only. Total must include all: input + cacheRead + cacheWrite
+  const totalInput = (input ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0)
   return {
     inputTokens: {
-      total: input ?? 0,
-      noCache: undefined as number | undefined,
+      total: totalInput,
+      noCache: input ?? 0,
       cacheRead: cacheRead ?? undefined as number | undefined,
       cacheWrite: cacheWrite ?? undefined as number | undefined,
     },
