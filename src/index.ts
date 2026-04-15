@@ -15,13 +15,15 @@ export function createClaudeCode(
   const cwd = settings.cwd ?? process.cwd()
   const providerName = settings.name ?? "claude-code"
 
+  // Class uses specificationVersion "v3" at runtime but implements V2 interface for type compat.
+  // AI SDK detects V3 at runtime and skips the V2->V3 conversion layer.
   const createModel = (modelId: string): LanguageModelV2 => {
     return new ClaudeCodeLanguageModel(modelId, {
       provider: providerName,
       cliPath,
       cwd,
       skipPermissions: settings.skipPermissions ?? true,
-    })
+    }) as unknown as LanguageModelV2
   }
 
   const provider = function (modelId: string) {
