@@ -3,6 +3,7 @@ export interface ClaudeCodeConfig {
   cliPath: string
   cwd?: string
   skipPermissions?: boolean
+  mcpConfigPath?: string
 }
 
 export interface ClaudeCodeProviderSettings {
@@ -10,6 +11,7 @@ export interface ClaudeCodeProviderSettings {
   cwd?: string
   name?: string
   skipPermissions?: boolean
+  mcpConfigPath?: string
 }
 
 /**

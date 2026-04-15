@@ -101,10 +101,13 @@ Now continuing with the current message:
   for (const msg of messages) {
     if (msg.role === "user") {
       if (typeof msg.content === "string") {
-        content.push({ type: "text", text: msg.content })
+        if (msg.content.trim()) {
+          content.push({ type: "text", text: msg.content })
+        }
       } else if (Array.isArray(msg.content)) {
         for (const part of msg.content as any[]) {
           if (part.type === "text") {
+            if (!part.text || !part.text.trim()) continue
             content.push({ type: "text", text: part.text })
           } else if (part.type === "tool-result") {
             const p = part as any
@@ -136,11 +139,10 @@ Now continuing with the current message:
       type: "user",
       message: {
         role: "user",
-        content: [{ type: "text", text: "" }],
+        content: [{ type: "text", text: "Continue." }],
       },
     })
   }
-
   return JSON.stringify({
     type: "user",
     message: {
