@@ -102,13 +102,16 @@ export function spawnClaudeProcess(
   return ap
 }
 
+const VALID_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"])
+
 export function buildCliArgs(opts: {
   sessionKey: string
   skipPermissions: boolean
   includeSessionId?: boolean
   model?: string
+  effort?: string
 }): string[] {
-  const { sessionKey, skipPermissions, includeSessionId = true, model } = opts
+  const { sessionKey, skipPermissions, includeSessionId = true, model, effort } = opts
   const args = [
     "--output-format",
     "stream-json",
@@ -117,8 +120,23 @@ export function buildCliArgs(opts: {
     "--verbose",
   ]
 
-  if (model) {
-    args.push("--model", model)
+  // Allow per-model effort override via "modelId:effort" (e.g. "opus:high").
+  let resolvedModel = model
+  let resolvedEffort = effort
+  if (model && model.includes(":")) {
+    const [baseModel, suffix] = model.split(":", 2)
+    if (suffix && VALID_EFFORTS.has(suffix)) {
+      resolvedModel = baseModel
+      resolvedEffort = suffix
+    }
+  }
+
+  if (resolvedModel) {
+    args.push("--model", resolvedModel)
+  }
+
+  if (resolvedEffort && VALID_EFFORTS.has(resolvedEffort)) {
+    args.push("--effort", resolvedEffort)
   }
 
   if (includeSessionId) {

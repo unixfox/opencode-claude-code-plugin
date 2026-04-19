@@ -185,6 +185,7 @@ export class ClaudeCodeLanguageModel implements LanguageModelV2 {
       skipPermissions: this.config.skipPermissions !== false,
       includeSessionId: false,
       model: this.modelId,
+      effort: this.config.effort,
     })
 
     log.info("doGenerate starting", {
@@ -505,6 +506,7 @@ export class ClaudeCodeLanguageModel implements LanguageModelV2 {
       sessionKey: sk,
       skipPermissions,
       model: this.modelId,
+      effort: this.config.effort,
     })
 
     const stream = new ReadableStream<LanguageModelV2StreamPart>({

@@ -21,6 +21,7 @@ export function createClaudeCode(
       cliPath,
       cwd,
       skipPermissions: settings.skipPermissions ?? true,
+      effort: settings.effort,
     })
   }
 
