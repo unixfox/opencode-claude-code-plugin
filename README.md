@@ -4,6 +4,12 @@ A standalone [opencode](https://github.com/opencodeco/opencode) provider plugin 
 
 This is a **standalone npm package** that opencode loads dynamically via its external provider system -- no modifications to opencode's source code required.
 
+## Archived repo
+
+This repository is archived. Unfortunately I don't have enough free time to maintain it. You can find forks like:
+- https://github.com/khalilgharbaoui/opencode-claude-code-plugin
+- https://github.com/Aptul9/opencode-claude-code-plugin
+
 ## Prerequisites
 
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated (`claude` available in your PATH)
