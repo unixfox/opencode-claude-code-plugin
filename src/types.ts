@@ -1,8 +1,11 @@
+export type ClaudeEffort = "low" | "medium" | "high" | "xhigh" | "max"
+
 export interface ClaudeCodeConfig {
   provider: string
   cliPath: string
   cwd?: string
   skipPermissions?: boolean
+  effort?: ClaudeEffort
 }
 
 export interface ClaudeCodeProviderSettings {
@@ -10,6 +13,7 @@ export interface ClaudeCodeProviderSettings {
   cwd?: string
   name?: string
   skipPermissions?: boolean
+  effort?: ClaudeEffort
 }
 
 /**
