@@ -60,6 +60,73 @@ export function compactConversationHistory(prompt: Prompt): string | null {
   return historyParts.join("\n\n")
 }
 
+const SUPPORTED_IMAGE_MEDIA_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+])
+
+function buildImageBlock(part: any): any | null {
+  const mediaType: string | undefined =
+    part.mediaType ?? part.mimeType ?? part.mime
+
+  const raw: unknown = part.data ?? part.url ?? part.source?.data
+
+  if (!raw) {
+    log.warn("file part without data/url, skipping", {
+      type: part.type,
+      filename: part.filename,
+    })
+    return null
+  }
+
+  let resolvedMediaType = mediaType
+  let base64: string | null = null
+
+  if (typeof raw === "string") {
+    if (raw.startsWith("data:")) {
+      const match = /^data:([^;,]+)(?:;[^,]*)?(?:;base64)?,(.*)$/s.exec(raw)
+      if (!match) {
+        log.warn("malformed data URI, skipping file part")
+        return null
+      }
+      resolvedMediaType = resolvedMediaType || match[1]
+      base64 = match[2]
+    } else if (/^https?:\/\//i.test(raw)) {
+      log.warn("remote URL file parts are not supported by Claude CLI, skipping", {
+        url: raw.slice(0, 80),
+      })
+      return null
+    } else {
+      base64 = raw
+    }
+  } else if (raw instanceof Uint8Array) {
+    base64 = Buffer.from(raw).toString("base64")
+  } else {
+    log.warn("unsupported file part data type", {
+      dataType: typeof raw,
+    })
+    return null
+  }
+
+  if (!resolvedMediaType || !SUPPORTED_IMAGE_MEDIA_TYPES.has(resolvedMediaType)) {
+    log.warn("unsupported media type for Claude image block, skipping", {
+      mediaType: resolvedMediaType,
+    })
+    return null
+  }
+
+  return {
+    type: "image",
+    source: {
+      type: "base64",
+      media_type: resolvedMediaType,
+      data: base64,
+    },
+  }
+}
+
 /**
  * Convert AI SDK prompt into a Claude CLI stream-json user message.
  */
@@ -106,6 +173,9 @@ Now continuing with the current message:
         for (const part of msg.content as any[]) {
           if (part.type === "text") {
             content.push({ type: "text", text: part.text })
+          } else if (part.type === "file" || part.type === "image") {
+            const block = buildImageBlock(part)
+            if (block) content.push(block)
           } else if (part.type === "tool-result") {
             const p = part as any
             let resultText = ""
