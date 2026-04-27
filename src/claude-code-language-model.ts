@@ -144,10 +144,9 @@ export class ClaudeCodeLanguageModel implements LanguageModelV2 {
         content: [{ type: "text", text }] as any,
         finishReason: "stop",
         usage: {
-          inputTokens: 0,
-          outputTokens: 0,
-          totalTokens: 0,
-        },
+          inputTokens: { total: 0, noCache: 0, cacheRead: undefined, cacheWrite: undefined },
+          outputTokens: { total: 0, text: undefined, reasoning: undefined },
+        } as unknown as LanguageModelV2Usage,
         request: { body: { text: "" } },
         response: {
           id: generateId(),
@@ -185,6 +184,7 @@ export class ClaudeCodeLanguageModel implements LanguageModelV2 {
       skipPermissions: this.config.skipPermissions !== false,
       includeSessionId: false,
       model: this.modelId,
+      mcpConfigPath: this.config.mcpConfigPath,
     })
 
     log.info("doGenerate starting", {
@@ -200,6 +200,7 @@ export class ClaudeCodeLanguageModel implements LanguageModelV2 {
     const proc = spawn(this.config.cliPath, cliArgs, {
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
+      shell: process.platform === "win32",
       env: { ...process.env, TERM: "xterm-256color" },
     })
 
@@ -396,14 +397,19 @@ export class ClaudeCodeLanguageModel implements LanguageModelV2 {
       } as any)
     }
 
-    const usage: LanguageModelV2Usage = {
-      inputTokens: result.usage?.input_tokens,
-      outputTokens: result.usage?.output_tokens,
-      totalTokens:
-        result.usage?.input_tokens && result.usage?.output_tokens
-          ? result.usage.input_tokens + result.usage.output_tokens
-          : undefined,
-    }
+    const usage = {
+      inputTokens: {
+        total: result.usage?.input_tokens ?? 0,
+        noCache: undefined,
+        cacheRead: (result.usage as any)?.cache_read_input_tokens ?? undefined,
+        cacheWrite: undefined,
+      },
+      outputTokens: {
+        total: result.usage?.output_tokens ?? 0,
+        text: undefined,
+        reasoning: undefined,
+      },
+    } as unknown as LanguageModelV2Usage
 
     return {
       content,
@@ -455,10 +461,9 @@ export class ClaudeCodeLanguageModel implements LanguageModelV2 {
             type: "finish",
             finishReason: "stop",
             usage: {
-              inputTokens: 0,
-              outputTokens: 0,
-              totalTokens: 0,
-            },
+              inputTokens: { total: 0, noCache: 0, cacheRead: undefined, cacheWrite: undefined },
+              outputTokens: { total: 0, text: undefined, reasoning: undefined },
+            } as unknown as LanguageModelV2Usage,
             providerMetadata: {
               "claude-code": {
                 synthetic: true,
@@ -505,6 +510,7 @@ export class ClaudeCodeLanguageModel implements LanguageModelV2 {
       sessionKey: sk,
       skipPermissions,
       model: this.modelId,
+      mcpConfigPath: this.config.mcpConfigPath,
     })
 
     const stream = new ReadableStream<LanguageModelV2StreamPart>({
@@ -998,15 +1004,18 @@ export class ClaudeCodeLanguageModel implements LanguageModelV2 {
                 finishReason:
                   toolCallMap.size > 0 ? "tool-calls" : "stop",
                 usage: {
-                  inputTokens: msg.usage?.input_tokens,
-                  outputTokens: msg.usage?.output_tokens,
-                  totalTokens:
-                    msg.usage?.input_tokens &&
-                    msg.usage?.output_tokens
-                      ? msg.usage.input_tokens +
-                        msg.usage.output_tokens
-                      : undefined,
-                },
+                  inputTokens: {
+                    total: msg.usage?.input_tokens ?? 0,
+                    noCache: undefined,
+                    cacheRead: (msg.usage as any)?.cache_read_input_tokens ?? undefined,
+                    cacheWrite: undefined,
+                  },
+                  outputTokens: {
+                    total: msg.usage?.output_tokens ?? 0,
+                    text: undefined,
+                    reasoning: undefined,
+                  },
+                } as unknown as LanguageModelV2Usage,
                 providerMetadata: {
                   "claude-code": resultMeta,
                 },
@@ -1041,10 +1050,9 @@ export class ClaudeCodeLanguageModel implements LanguageModelV2 {
             type: "finish",
             finishReason: "stop",
             usage: {
-              inputTokens: undefined,
-              outputTokens: undefined,
-              totalTokens: undefined,
-            },
+              inputTokens: { total: undefined, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+              outputTokens: { total: undefined, text: undefined, reasoning: undefined },
+            } as unknown as LanguageModelV2Usage,
             providerMetadata: {
               "claude-code": resultMeta,
             },

@@ -53,6 +53,7 @@ export function spawnClaudeProcess(
   const proc = spawn(cliPath, cliArgs, {
     cwd,
     stdio: ["pipe", "pipe", "pipe"],
+    shell: process.platform === "win32",
     env: { ...process.env, TERM: "xterm-256color" },
   })
 
@@ -107,8 +108,9 @@ export function buildCliArgs(opts: {
   skipPermissions: boolean
   includeSessionId?: boolean
   model?: string
+  mcpConfigPath?: string
 }): string[] {
-  const { sessionKey, skipPermissions, includeSessionId = true, model } = opts
+  const { sessionKey, skipPermissions, includeSessionId = true, model, mcpConfigPath } = opts
   const args = [
     "--output-format",
     "stream-json",
@@ -130,6 +132,10 @@ export function buildCliArgs(opts: {
 
   if (skipPermissions) {
     args.push("--dangerously-skip-permissions")
+  }
+
+  if (mcpConfigPath) {
+    args.push("--mcp-config", mcpConfigPath)
   }
 
   return args
