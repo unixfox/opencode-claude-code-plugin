@@ -107,8 +107,9 @@ export function buildCliArgs(opts: {
   skipPermissions: boolean
   includeSessionId?: boolean
   model?: string
+  effort?: string
 }): string[] {
-  const { sessionKey, skipPermissions, includeSessionId = true, model } = opts
+  const { sessionKey, skipPermissions, includeSessionId = true, model, effort } = opts
   const args = [
     "--output-format",
     "stream-json",
@@ -119,6 +120,10 @@ export function buildCliArgs(opts: {
 
   if (model) {
     args.push("--model", model)
+  }
+
+  if (effort) {
+    args.push("--effort", effort)
   }
 
   if (includeSessionId) {

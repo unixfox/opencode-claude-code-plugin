@@ -104,7 +104,7 @@ Now continuing with the current message:
         content.push({ type: "text", text: msg.content })
       } else if (Array.isArray(msg.content)) {
         for (const part of msg.content as any[]) {
-          if (part.type === "text") {
+          if (part.type === "text" && part.text) {
             content.push({ type: "text", text: part.text })
           } else if (part.type === "tool-result") {
             const p = part as any
@@ -132,13 +132,7 @@ Now continuing with the current message:
   }
 
   if (content.length === 0) {
-    return JSON.stringify({
-      type: "user",
-      message: {
-        role: "user",
-        content: [{ type: "text", text: "" }],
-      },
-    })
+    return ""
   }
 
   return JSON.stringify({
