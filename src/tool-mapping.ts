@@ -1,4 +1,27 @@
 import { log } from "./logger.js"
+import { applyTaskCreateToolUse, applyTaskUpdate, type TodoEntry } from "./todo-ledger.js"
+import type { WebSearchRouting } from "./types.js"
+
+export interface MapToolOptions {
+  webSearch?: WebSearchRouting
+  sessionId?: string
+  toolUseId?: string
+}
+
+/** Claude CLI's built-in web search tool (name varies by CLI version). */
+export function isWebSearchTool(name: string): boolean {
+  return name === "WebSearch" || name === "web_search"
+}
+
+/**
+ * True when WebSearch runs inside Claude CLI (default) rather than being
+ * forwarded to an opencode tool. In that case the tool-call part must not
+ * reach opencode — "WebSearch" has no registry entry there and renders as
+ * an invalid tool row. Callers show the query as a text line instead.
+ */
+export function isWebSearchHandledByCli(route?: WebSearchRouting): boolean {
+  return !route || route === "claude" || route === "disabled"
+}
 
 /**
  * Map Claude CLI tool input (snake_case) to OpenCode tool input (camelCase)
@@ -74,7 +97,6 @@ const OPENCODE_HANDLED_TOOLS = new Set([
   "Write",
   "Bash",
   "NotebookEdit",
-  "TodoWrite",
   "Read",
   "Glob",
   "Grep",
@@ -82,47 +104,133 @@ const OPENCODE_HANDLED_TOOLS = new Set([
 
 // Claude CLI internal tools that should not be forwarded to opencode.
 // These are part of Claude Code's own system and have no opencode equivalent.
+// Tools the Claude CLI emits for its own internal bookkeeping (sub-agents,
+// task tracking, search). opencode has no matching tool registry entry, so
+// forwarding them surfaces as `⚙ invalid` rows in the UI. Skip them.
+// TaskOutput is intentionally NOT here — it has an explicit bash-echo mapping
+// below so the result stays visible.
 const CLAUDE_INTERNAL_TOOLS = new Set([
   "ToolSearch",
   "Agent",
   "AskFollowupQuestion",
+  "TaskList",
+  "TaskGet",
+  "TaskStop",
 ])
+
+/**
+ * Wrap model-controlled text as one shell single-quoted word.
+ *
+ * `TaskOutput` is displayed by running a real `bash` call, so its payload
+ * reaches a shell. Double quotes are not enough: inside them `$(…)`,
+ * backticks and `${…}` still expand, so `TaskOutput({content: "X$(id -u)Y"})`
+ * executed `id` while the operator saw a command that read like a print
+ * (issue #27). Single quotes suppress every expansion; the only character
+ * needing care is `'` itself, closed and reopened around an escaped one.
+ */
+export function singleQuoteForShell(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+function emitTodoWrite(todos: TodoEntry[]) {
+  return {
+    name: "todowrite",
+    input: {
+      todos: todos.map((todo) => ({
+        id: todo.id,
+        content: todo.content,
+        status: todo.status,
+        priority: "medium",
+      })),
+    },
+    executed: false,
+  }
+}
 
 export function mapTool(
   name: string,
   input?: any,
+  opts?: MapToolOptions,
 ): { name: string; input?: any; executed: boolean; skip?: boolean } {
   // Claude CLI internal tools — skip entirely
   if (CLAUDE_INTERNAL_TOOLS.has(name)) {
     log.debug("skipping Claude CLI internal tool", { name })
     return { name, input, executed: true, skip: true }
   }
+
+  // TaskCreate: stash subject keyed by tool_use_id; emission happens on tool_result.
+  // Without sessionId+toolUseId we cannot maintain the ledger, so fall back to skip
+  // (preserves old behavior for callers that haven't been threaded yet).
+  if (name === "TaskCreate") {
+    if (opts?.sessionId && opts?.toolUseId) {
+      applyTaskCreateToolUse(opts.sessionId, opts.toolUseId, input)
+    }
+    return { name, input, executed: true, skip: true }
+  }
+
+  // TaskUpdate: mutate ledger and emit full list as opencode todowrite. Without
+  // sessionId, fall back to skip. Unknown task ids return null from the ledger
+  // and we drop the event.
+  if (name === "TaskUpdate") {
+    if (opts?.sessionId) {
+      const list = applyTaskUpdate(opts.sessionId, input)
+      if (list !== null) return emitTodoWrite(list)
+    }
+    return { name, input, executed: true, skip: true }
+  }
+
   // Plan mode tools
   if (name === "EnterPlanMode") return { name: "plan_enter", input: {}, executed: false }
   if (name === "ExitPlanMode") return { name: "plan_exit", input, executed: false }
 
-  // WebSearch
-  if (name === "WebSearch" || name === "web_search") {
-    const mappedInput = input?.query ? { query: input.query } : input
-    log.debug("mapping WebSearch", { originalInput: input, mappedInput })
-    return { name: "websearch_web_search_exa", input: mappedInput, executed: false }
+  // TodoWrite needs opencode to run it locally so Todo.Service (and the UI
+  // widget backed by it) gets populated. Reporting as provider-executed would
+  // short-circuit opencode's own execute and leave the todo panel empty.
+  if (name === "TodoWrite") {
+    const mappedInput = mapToolInput(name, input)
+    return { name: "todowrite", input: mappedInput, executed: false }
   }
 
-  // TaskOutput -> bash echo
+  // WebSearch — routing controlled by config.webSearch
+  if (isWebSearchTool(name)) {
+    const mappedInput = input?.query ? { query: input.query } : input
+    const route = opts?.webSearch
+    if (route && route !== "claude" && route !== "disabled") {
+      log.debug("routing WebSearch to opencode tool", { target: route, mappedInput })
+      return { name: route, input: mappedInput, executed: false }
+    }
+    // Claude CLI runs WebSearch internally; "WebSearch" has no opencode
+    // registry entry, so forwarding the tool-call part surfaces a
+    // "Model tried to call unavailable tool" invalid row in opencode.
+    // Skip the part — callers render the query as a text line instead.
+    log.debug("WebSearch executed by Claude CLI", { mappedInput })
+    return { name: "WebSearch", input: mappedInput, executed: true, skip: true }
+  }
+
+  // TaskOutput -> bash printf
   if (name === "TaskOutput") {
     if (!input) return { name: "bash", executed: false }
     const output = input?.content || input?.output || JSON.stringify(input)
     return {
       name: "bash",
       input: {
-        command: `echo "TASK OUTPUT: ${String(output).replace(/"/g, '\\"')}"`,
+        command: `printf '%s\\n' ${singleQuoteForShell(`TASK OUTPUT: ${String(output)}`)}`,
         description: "Displaying task output",
       },
       executed: false,
     }
   }
 
-  // MCP tools: mcp__<server>__<tool> -> <server>_<tool>
+  // Third-party MCP tools: mcp__<server>__<tool> -> <server>_<tool>.
+  // Marked provider-executed because Claude CLI runs these internally via
+  // its own --mcp-config; the tool-result is already in the stream. If we
+  // reported executed:false, opencode would look up the tool in its own
+  // registry, fail to find it, and emit an `invalid` tool error that
+  // shadows the real result.
+  //
+  // Our own proxy tools (`mcp__opencode_proxy__*`) are filtered out by
+  // callers before reaching here, so this branch only ever sees user MCP
+  // servers configured in Claude CLI's settings.
   if (name.startsWith("mcp__")) {
     const parts = name.slice(5).split("__")
     if (parts.length >= 2) {
@@ -130,7 +238,7 @@ export function mapTool(
       const toolName = parts.slice(1).join("_")
       const openCodeName = `${serverName}_${toolName}`
       log.debug("mapping MCP tool", { original: name, mapped: openCodeName })
-      return { name: openCodeName, input, executed: false }
+      return { name: openCodeName, input, executed: true }
     }
   }
 

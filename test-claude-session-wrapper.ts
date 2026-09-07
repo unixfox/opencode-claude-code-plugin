@@ -1,0 +1,144 @@
+import assert from "node:assert/strict"
+import * as path from "node:path"
+import { test } from "node:test"
+import {
+  decodeUserEnvelope,
+  spawnInteractiveProcess,
+} from "./src/claude-session-wrapper.js"
+import { ClaudeSession, encodeCwd } from "./src/claude-session-bun.js"
+
+// ---------------------------------------------------------------------------
+// decodeUserEnvelope — doStream writes stream-json envelopes to stdin; the
+// interactive TUI must receive plain typed text, never raw JSON or base64.
+// ---------------------------------------------------------------------------
+
+test("decodeUserEnvelope extracts text blocks from a stream-json envelope", () => {
+  const envelope = JSON.stringify({
+    type: "user",
+    message: {
+      role: "user",
+      content: [
+        { type: "text", text: "Hello there" },
+        { type: "text", text: "(think)" },
+      ],
+    },
+  })
+  assert.equal(decodeUserEnvelope(envelope), "Hello there\n\n(think)")
+})
+
+test("decodeUserEnvelope passes string message content through", () => {
+  const envelope = JSON.stringify({
+    type: "user",
+    message: { role: "user", content: "plain string content" },
+  })
+  assert.equal(decodeUserEnvelope(envelope), "plain string content")
+})
+
+test("decodeUserEnvelope drops image blocks but keeps text", () => {
+  const envelope = JSON.stringify({
+    type: "user",
+    message: {
+      role: "user",
+      content: [
+        { type: "text", text: "look at this" },
+        {
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: "AAAA" },
+        },
+      ],
+    },
+  })
+  const decoded = decodeUserEnvelope(envelope)
+  assert.equal(decoded, "look at this")
+  assert.ok(!decoded.includes("AAAA"), "base64 must never reach the TUI")
+})
+
+test("decodeUserEnvelope renders tool_result blocks as labeled text", () => {
+  const envelope = JSON.stringify({
+    type: "user",
+    message: {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "tu_1",
+          content: [{ type: "text", text: "exit code 0" }],
+        },
+      ],
+    },
+  })
+  const decoded = decodeUserEnvelope(envelope)
+  assert.ok(decoded.includes("[Tool result tu_1]"))
+  assert.ok(decoded.includes("exit code 0"))
+})
+
+test("decodeUserEnvelope passes non-JSON input through verbatim", () => {
+  assert.equal(decodeUserEnvelope("just plain text"), "just plain text")
+})
+
+test("decodeUserEnvelope passes non-user JSON through verbatim", () => {
+  const control = JSON.stringify({ type: "control_response", response: {} })
+  assert.equal(decodeUserEnvelope(control), control)
+})
+
+// ---------------------------------------------------------------------------
+// encodeCwd — transcript dir name: every non-alphanumeric char becomes "-".
+// ---------------------------------------------------------------------------
+
+test("encodeCwd replaces every non-alphanumeric char with a dash", () => {
+  // Use a relative-free absolute path so path.resolve is a no-op on POSIX.
+  if (process.platform === "win32") {
+    assert.equal(encodeCwd("C:\\dev\\My Project"), "C--dev-My-Project")
+  } else {
+    assert.equal(encodeCwd("/Users/me/my-app"), "-Users-me-my-app")
+    assert.equal(encodeCwd("/tmp/My Project"), "-tmp-My-Project")
+  }
+})
+
+test("ClaudeSession uses configDir for the transcript path", () => {
+  const configDir = path.join(process.cwd(), ".tmp-claude-config")
+  const cwd = path.join(process.cwd(), "workspace")
+  const session = new ClaudeSession({ cwd, configDir })
+  assert.equal(session.configDir, configDir)
+  assert.equal(
+    session.jsonlPath,
+    path.join(configDir, "projects", encodeCwd(cwd), `${session.sessionId}.jsonl`),
+  )
+})
+
+// ---------------------------------------------------------------------------
+// spawnInteractiveProcess — ActiveProcess shim shape. No claude is spawned
+// until the first stdin.write, so constructing + killing is offline-safe.
+// ---------------------------------------------------------------------------
+
+test("spawnInteractiveProcess returns an ActiveProcess-shaped shim", () => {
+  const ap = spawnInteractiveProcess({ cwd: process.cwd() })
+  const proc = ap.proc as any
+  assert.equal(typeof proc.stdin.write, "function")
+  assert.equal(typeof proc.kill, "function")
+  assert.equal(typeof proc.on, "function")
+  assert.equal(typeof proc.off, "function")
+  assert.equal(ap.proxyServer, null)
+  assert.equal(ap.mcpHash, undefined)
+  // kill() before any turn must be safe (no session started yet).
+  assert.equal(proc.kill(), true)
+  assert.equal(proc.killed, true)
+})
+
+test("spawnInteractiveProcess threads systemPromptFile into ActiveProcess", () => {
+  const ap = spawnInteractiveProcess({
+    cwd: process.cwd(),
+    systemPromptFile: "/tmp/nonexistent-system-prompt.txt",
+  })
+  assert.equal(ap.systemPromptFile, "/tmp/nonexistent-system-prompt.txt")
+  ;(ap.proc as any).kill()
+})
+
+test("error handler registration is add/remove symmetric", () => {
+  const ap = spawnInteractiveProcess({ cwd: process.cwd() })
+  const proc = ap.proc as any
+  const handler = () => {}
+  proc.on("error", handler)
+  proc.off("error", handler)
+  proc.kill()
+})

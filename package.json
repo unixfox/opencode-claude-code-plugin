@@ -1,7 +1,8 @@
 {
-  "name": "opencode-claude-code-plugin",
-  "version": "0.1.2",
+  "name": "@khalilgharbaoui/opencode-claude-code-plugin",
+  "version": "0.18.3",
   "description": "Claude Code CLI provider plugin for opencode",
+  "author": "Khalil Gharbaoui",
   "type": "module",
   "main": "dist/index.js",
   "module": "dist/index.js",
@@ -13,20 +14,24 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "skills"
   ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test-bridge.ts test-broker.ts test-proxy-mcp.ts test-proxy-task.ts test-auto-continue.ts test-has-new-user-content.ts test-get-claude-user-message.ts test-logger.ts test-cli-args.ts test-session-manager.ts test-compaction-model.ts test-tool-mapping.ts test-cwd-resolution.ts test-todo-ledger.ts test-session-affinity.ts test-config-models.ts test-ask-user-question.ts test-claude-session-wrapper.ts test-spawn-env.ts test-respawn.ts test-startup-diagnostics.ts test-subagent-hint.ts test-exit-plan-mode-question.ts test-compress-tool.ts test-agent-models.ts test-side-question.ts test-btw-command.ts test-effort-sessions.ts test-tool-block-index.ts test-skill-bridge.ts test-configure-skill.ts"
   },
   "dependencies": {
-    "@ai-sdk/provider": "^2.0.0",
-    "@ai-sdk/provider-utils": "^2.0.0"
+    "@ai-sdk/provider": "^3.0.8",
+    "@ai-sdk/provider-utils": "^3.0.8",
+    "jsonc-parser": "3.3.1"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
     "tsup": "^8.0.0",
+    "tsx": "^4.22.4",
     "typescript": "^5.7.0"
   },
   "keywords": [
@@ -39,6 +44,9 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/unixfox/opencode-claude-code-plugin"
+    "url": "git+https://github.com/khalilgharbaoui/opencode-claude-code-plugin.git"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
